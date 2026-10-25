@@ -1,0 +1,6 @@
+# Domeny dlya avtopodbora strategii (obychno zablokirovany v RF).
+# discord.com i cdn.discordapp.com sluzhba obhodit (oni est v hosts.txt) - im prioritet pri podbore.
+# x.com - kontrolnyy: tolko proveryaet, chto strategiya voobshche probivaet DPI; sluzhba ego ne obhodit.
+discord.com
+cdn.discordapp.com
+x.com

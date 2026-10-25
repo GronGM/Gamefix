@@ -1,0 +1,29 @@
+# Domeny, dlya kotoryh vklyuchaetsya obhod. Odin domen na stroku, poddomeny podhvatyvayutsya sami.
+# Posle pravki: zapusti install.bat eshche raz.
+# --- WARDOGS ---
+wardogs.com
+bulkhead.com
+bulkhead.net
+pragmaengine.com
+firstlook.gg
+epicgames.dev
+epicgames.com
+unrealengine.com
+vivox.com
+team17.com
+# --- Discord ---
+discord.com
+discordapp.com
+discordapp.net
+discordcdn.com
+discord.gg
+discord.media
+discord.app
+discord.co
+discord.dev
+discord.gift
+discord.new
+discord.store
+discordstatus.com
+discordsays.com
+discord-attachments-uploads-prd.storage.googleapis.com
