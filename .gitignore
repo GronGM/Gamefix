@@ -1,0 +1,7 @@
+# lokalnye fayly, kotorye sozdaet GameFix pri rabote
+config.txt
+gamefix-log.txt
+winws-test-*.txt
+verdict.txt
+GameFix-report.txt
+lists/autotest-hosts.txt
