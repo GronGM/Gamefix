@@ -62,12 +62,19 @@ function Has-Bom($path) {
     return ''
 }
 function Fix-ListEncoding {
-    foreach ($f in 'hosts.txt','test-hosts.txt','ipset-exclude.txt') {
+    foreach ($f in 'hosts.txt','test-hosts.txt','ipset-exclude.txt','ipset-exclude-udp.txt') {
         $p = "$LISTS$f"; if (-not (Test-Path $p)) { continue }
         $e = Has-Bom $p
         if ($e) { Write-List $p @(Get-Content $p); W "  lists\$f byl v $e - peresohranen v UTF-8 bez BOM (inache winws ego ne ponimaet)" }
     }
 }
+
+# Adresa, kotorye UDP-profili NE trogayut: lokalnaya set i golosovoy chat Vivox (Unity) - v WARDOGS golos idet cherez nego.
+# Feyki v nachale UDP-potoka lomayut ishodyashchiy golos Vivox (sobesednikov slyshno, tebya - net).
+# Diapazony: support.unity.com, "Vivox: What IPs and ports are required" (media - UDP 12000-54000).
+# V samom fayle - tolko adresa, bez kommentariev (ipset ih ne zhdet).
+$UDP_EXCLUDE_DEFAULT = @('10.0.0.0/8','172.16.0.0/12','192.168.0.0/16','100.64.0.0/10','85.236.96.0/21','85.236.104.0/23')
+function Ensure-UdpExclude { $p = "${LISTS}ipset-exclude-udp.txt"; if (-not (Test-Path $p)) { Write-List $p $UDP_EXCLUDE_DEFAULT } }
 
 function Get-Args([string]$strategy, [string]$hostfile) {
     $tcp = $STRATEGIES[$strategy]
@@ -75,13 +82,13 @@ function Get-Args([string]$strategy, [string]$hostfile) {
     $a = @(
         "--wf-tcp=80,443,2053,2083,2087,2096,8443", $(if ($udpGame) { "--wf-udp=443,1024-65535" } else { "--wf-udp=443,19294-19344,50000-50100" }),
         "--filter-udp=443", "--hostlist=$hostfile", "--ipset-exclude=${LISTS}ipset-exclude.txt", "--dpi-desync=fake", "--dpi-desync-repeats=11", "--dpi-desync-fake-quic=${BIN}quic_initial_www_google_com.bin", "--new",
-        "--filter-udp=19294-19344,50000-50100", "--filter-l7=discord,stun", "--dpi-desync=fake", "--dpi-desync-fake-discord=${BIN}ACTIVE_DISCORD_UDP.bin", "--dpi-desync-fake-stun=${BIN}ACTIVE_DISCORD_UDP.bin", "--dpi-desync-repeats=6", "--new",
+        "--filter-udp=19294-19344,50000-50100", "--filter-l7=discord,stun", "--ipset-exclude=${LISTS}ipset-exclude-udp.txt", "--dpi-desync=fake", "--dpi-desync-fake-discord=${BIN}ACTIVE_DISCORD_UDP.bin", "--dpi-desync-fake-stun=${BIN}ACTIVE_DISCORD_UDP.bin", "--dpi-desync-repeats=6", "--new",
         "--filter-tcp=2053,2083,2087,2096,8443", "--hostlist-domains=discord.media", "--dpi-desync=fake,multisplit", "--dpi-desync-split-seqovl=681", "--dpi-desync-split-pos=1", "--dpi-desync-fooling=ts", "--dpi-desync-repeats=8", "--dpi-desync-split-seqovl-pattern=${BIN}tls_clienthello_www_google_com.bin", "--dpi-desync-fake-tls=${BIN}tls_clienthello_www_google_com.bin", "--new",
         "--filter-tcp=80,443", "--hostlist=$hostfile", "--ipset-exclude=${LISTS}ipset-exclude.txt", $tcp
     )
     # Igrovoy UDP-filtr (feyki na pervye pakety UDP-potokov). Po umolchaniyu VYKL: u provayderov s limitom UDP po obemu on tolko vredit.
     # Vklyuchit: v config.txt stroka udp=on, potom install.bat
-    if ($udpGame) { $a += @("--new", "--filter-udp=1024-65535", "--ipset-exclude=${LISTS}ipset-exclude.txt", "--dpi-desync=fake", "--dpi-desync-repeats=10", "--dpi-desync-any-protocol=1", "--dpi-desync-fake-unknown-udp=${BIN}ACTIVE_GAME_UDP.bin", "--dpi-desync-cutoff=n4") }
+    if ($udpGame) { $a += @("--new", "--filter-udp=1024-65535", "--ipset-exclude=${LISTS}ipset-exclude-udp.txt", "--dpi-desync=fake", "--dpi-desync-repeats=10", "--dpi-desync-any-protocol=1", "--dpi-desync-fake-unknown-udp=${BIN}ACTIVE_GAME_UDP.bin", "--dpi-desync-cutoff=n4") }
     return ($a -join ' ')
 }
 
@@ -219,6 +226,7 @@ function Do-Install {
     Remove-Item "$ROOT\verdict.txt" -EA SilentlyContinue
     foreach ($f in 'winws.exe','WinDivert.dll','WinDivert64.sys','cygwin1.dll') { if (-not (Test-Path "$BIN$f")) { W "  NET FAYLA bin\$f - arhiv nepolnyy"; return } }
     if ($ROOT -match '\s') { W "  Put k papke soderzhit probel: $ROOT - peremesti papku, naprimer, v C:\GameFix"; return }
+    Ensure-UdpExclude
     Fix-ListEncoding
     $script:TestPassed = $null
     $strategy = Get-Cfg 'strategy' ''
@@ -363,10 +371,13 @@ function Do-Diag([switch]$AfterInstall) {
     $ext = if ($gtP -and $gtP.Got -gt 0) { $gtP } else { $inP }
     $homeBad = [bool]($gwP -and $gwP.Got -gt 0 -and ($gwP.Loss -ge 5 -or $gwP.Jit -ge 8 -or $gwP.Max -ge 80))
     $extBad = [bool]($ext -and $ext.Got -gt 0 -and ($ext.Loss -ge 5 -or $ext.Jit -ge 15))
-    $loadBad = [bool]($null -ne $down -and ($down -ge 10 -or $up -ge 1))
+    # Nagruzka - problema, tolko esli ping pri etom plohoy ili kanal zabit silno: na bystrom internete neskolko Mbit/s ne meshayut
+    $loadSome = [bool]($null -ne $down -and ($down -ge 10 -or $up -ge 2))
+    $loadBig = [bool]($null -ne $down -and ($down -ge 50 -or $up -ge 20))
+    $loadBad = [bool](($loadSome -and ($homeBad -or $extBad)) -or $loadBig)
     if ($homeBad) { [void]$v.Add("Сеть: потери или скачки уже до роутера ($($gwP.Loss)% потерь, до $($gwP.Max) мс)" + $(if ($wifi) { " — это Wi-Fi. Подключи кабель или сядь ближе к роутеру." } else { " — проверь кабель и перезагрузи роутер." })) }
     elseif ($extBad) { [void]$v.Add("Сеть: до роутера чисто, а дальше $($ext.Loss)% потерь и скачки до $($ext.Max) мс. Это линия провайдера или кто-то в сети качает. Если так и вечером — иди в поддержку провайдера с этим отчётом.") }
-    if ($loadBad) { [void]$v.Add("Во время проверки компьютер качал $down Мбит/с и отдавал $up Мбит/с — закрой торренты и загрузки, они поднимают пинг.") }
+    if ($loadBad) { [void]$v.Add("Во время проверки компьютер качал $down Мбит/с и отдавал $up Мбит/с. Если это торренты или загрузки — закрой их, они поднимают пинг. Кто качает, видно в «Мониторе ресурсов» → вкладка «Сеть».") }
     if ($sus.Count) { [void]$v.Add("Запущено то, что может влиять на пинг: " + ($sus -join ', ') + ".") }
     if ((Get-Cfg 'udp' 'off') -eq 'on') { [void]$v.Add("Игровой UDP-фильтр включён — весь игровой трафик идёт через winws. Если лагает, выключи его: в config.txt udp=off, потом install.bat.") }
     if ($gtP -and $gtP.Got -eq 0 -and $inP -and $inP.Got -gt 0) { [void]$v.Add("Сервер игры $gt не отвечает на ping — возможно, адрес сменился (свой можно вписать в config.txt: pingtarget=IP).") }
@@ -419,6 +430,6 @@ switch ($Action) {
     'deadips'   { Do-DeadIps }
     'diag'      { Do-Diag }
     'shortcut'  { Do-Shortcut }
-    'run'       { Stop-Others; $st = Get-Cfg 'strategy' 'ALT11'; Start-Process -FilePath "${BIN}winws.exe" -ArgumentList (Get-Args $st "${LISTS}hosts.txt") -WorkingDirectory $BIN }
+    'run'       { Ensure-UdpExclude; Stop-Others; $st = Get-Cfg 'strategy' 'ALT11'; Start-Process -FilePath "${BIN}winws.exe" -ArgumentList (Get-Args $st "${LISTS}hosts.txt") -WorkingDirectory $BIN }
 }
 Finish
