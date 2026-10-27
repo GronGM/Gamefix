@@ -9,7 +9,7 @@ firstlook.gg
 epicgames.dev
 epicgames.com
 unrealengine.com
-vivox.com
+# vivox.com (golosovoy chat) syuda ne dobavlyat: ego ne blokiruyut, a obhod lomaet golos
 team17.com
 # --- Discord ---
 discord.com
